@@ -210,56 +210,64 @@ describe("writeDescription", () => {
     expect(patches()[0]?.body).toEqual({ body: "\r\nFirst\r\nChanged\r\n\r\n" });
   });
 
-  describe("keeps the whitespace Ajour's copy trims where it was", () => {
-    /** The body written for `text`, over an issue whose body is `source`. */
+  describe("puts the whitespace the read trims back where it was, or refuses", () => {
+    const NBSP = String.fromCharCode(0xa0);
+
+    /** The body written for `text` over an issue whose body is `source`, or why the write refused. */
     async function written(source: string, text: string) {
       const { patches } = stubGitHub(source);
       const read = await readDescription(connection, { sourceId: ISSUE_URL });
-      await writeDescription(connection, { sourceId: ISSUE_URL, text, expected: read.description.text });
+      try {
+        await writeDescription(connection, { sourceId: ISSUE_URL, text, expected: read.description.text });
+      } catch (error) {
+        expect(patches()).toEqual([]);
+        return { refused: (error as Error).message };
+      }
       return patches()[0]?.body?.body;
     }
 
-    it("keeps trailing spaces on their line when the user appends after it", async () => {
-      await expect(written("First\nKeep  \n", "First\nKeep\nNext")).resolves.toBe("First\nKeep  \nNext\n");
+    const ambiguous = { refused: expect.stringMatching(/cannot tell which "Keep" line.*Edit the description in GitHub\.$/) };
+    const lineBreak = { refused: expect.stringMatching(/line break.*Edit the description in GitHub\.$/) };
+
+    it.each([
+      ["unchanged", "A\nKeep  \n", "A\nKeep", "A\nKeep  \n"],
+      ["append after a tab", "A\nKeep\t", "A\nKeep\nNext", "A\nKeep\t\nNext"],
+      ["append after a non-breaking space", `A\nKeep${NBSP}`, "A\nKeep\nNext", `A\nKeep${NBSP}\nNext`],
+      ["append after two spaces", "A\nKeep  ", "A\nKeep\nNext", lineBreak],
+      ["append after a blank line", "A\nKeep  ", "A\nKeep\n\nNext", "A\nKeep  \n\nNext"],
+      ["prepend", "\n \nA\nKeep  ", "Intro\nA\nKeep", "\n \nIntro\nA\nKeep  "],
+      ["prepend and append", "A\nKeep\t", "Intro\nA\nKeep\nNext", "Intro\nA\nKeep\t\nNext"],
+      ["a duplicate added before", "A\nKeep  ", "Keep\nA\nKeep", "Keep\nA\nKeep  "],
+      ["a duplicate added after", "A\nKeep\t", "A\nKeep\nKeep", ambiguous],
+      ["duplicates added before and after", "A\nKeep  ", "Intro\nA\nKeep\nNext\nKeep", ambiguous],
+      ["the last line swapped", "A\nKeep\t", "Keep\nA", ambiguous],
+      ["the last line moved", "A\nB\nKeep  ", "Keep\nA\nB", "Keep\nA\nB"],
+      ["the last line edited", "A\nKeep  \n\n", "A\nKept", "A\nKept\n\n"],
+      ["the last line deleted", "A\nKeep  \n", "A", "A\n"],
+      ["an earlier line edited", "A\nKeep \t\n", "B\nKeep", "B\nKeep \t\n"],
+      ["trailing blank lines", "A\n\n \n", "A\nNext", "A\nNext\n\n \n"],
+      ["a whitespace-only body", " \n\n", "Hello", "Hello"],
+      ["the text emptied", "\nA  \n", "", ""],
+      ["uniform Windows line endings", "A\r\nKeep\t\r\n", "A\nKeep\nNext", "A\r\nKeep\t\r\nNext\r\n"],
+      ["mixed line endings", "A\r\nB\nC", "A", { refused: expect.stringMatching(/line endings Ajour cannot keep/) }],
+    ])("%s", async (_case, source, text, expected) => {
+      await expect(written(source, text)).resolves.toEqual(expected);
     });
 
-    it("keeps a trailing non-breaking space and tab on their line when the user appends after it", async () => {
-      await expect(written("First\nKeep \t", "First\nKeep\nNext")).resolves.toBe("First\nKeep \t\nNext");
+    it("refuses rather than diff an edit past 4,000,000 line pairs", async () => {
+      const lines = (prefix: string) => Array.from({ length: 2100 }, (_, index) => `${prefix}${index}`).join("\n");
+
+      await expect(written(`${lines("old")}\nKeep\t`, `${lines("new")}\nKeep`)).resolves.toEqual({
+        refused: expect.stringMatching(/edit this large.*Edit the description in GitHub\.$/),
+      });
     });
 
-    it("keeps them with Windows line endings", async () => {
-      await expect(written("First\r\nKeep  \r\n", "First\nKeep\nNext")).resolves.toBe(
-        "First\r\nKeep  \r\nNext\r\n",
-      );
-    });
+    it("diffs a rewrite of 1,900 lines quickly", async () => {
+      const lines = (prefix: string) => Array.from({ length: 1900 }, (_, index) => `${prefix}${index}`).join("\n");
+      const started = performance.now();
 
-    it("keeps leading blank lines at the start when the user prepends a line", async () => {
-      await expect(written("\n \nFirst\nLast", "Intro\nFirst\nLast")).resolves.toBe("\n \nIntro\nFirst\nLast");
-    });
-
-    it("keeps trailing blank lines at the end when the user appends a line", async () => {
-      await expect(written("First\n\n \n", "First\nNext")).resolves.toBe("First\nNext\n\n \n");
-    });
-
-    it("keeps the last line's trailing spaces when the user edits only earlier lines", async () => {
-      await expect(written("First\nKeep \t\n", "Changed\nKeep")).resolves.toBe("Changed\nKeep \t\n");
-    });
-
-    it("finds the last line between lines the user added before and after it", async () => {
-      await expect(written("A\nKeep  ", "X\nA\nKeep\nY")).resolves.toBe("X\nA\nKeep  \nY");
-    });
-
-    it("writes the last line as the user typed it when they edit it, keeping the blank lines after it", async () => {
-      await expect(written("First\nKeep  \n\n", "First\nKept")).resolves.toBe("First\nKept\n\n");
-    });
-
-    it("drops the trailing spaces with the last line when the user deletes it", async () => {
-      await expect(written("First\nKeep  \n", "First")).resolves.toBe("First\n");
-    });
-
-    it("replaces a blank body whole, and empties the body when the user empties the text", async () => {
-      await expect(written(" \n\n", "Hello")).resolves.toBe("Hello");
-      await expect(written("\nFirst  \n", "")).resolves.toBe("");
+      await expect(written(`${lines("old")}\nKeep\t`, `${lines("new")}\nKeep`)).resolves.toBe(`${lines("new")}\nKeep\t`);
+      expect(performance.now() - started).toBeLessThan(1000);
     });
   });
 
