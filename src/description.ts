@@ -42,16 +42,40 @@ export function describeIssueBody(body: string | null | undefined): ConnectorSyn
 }
 
 /**
+ * Where the source's last line is among the edited lines, if the user left it
+ * as it was: after the lines they kept before it, or else its last place
+ * among the lines after those. Undefined when they edited or deleted it.
+ */
+function lastLineAt(original: string[], edited: string[]) {
+  let kept = 0;
+  while (kept < original.length && kept < edited.length && original[kept] === edited[kept]) kept += 1;
+  if (kept === original.length) return kept - 1;
+  const at = edited.lastIndexOf(original[original.length - 1]!);
+  return at >= kept ? at : undefined;
+}
+
+/**
  * The body to write for Ajour's text: the text as it is, with the source
- * body's line endings, and the blank lines and spaces the read trimmed from
- * its start and end, as they were. An emptied description empties the body.
+ * body's line endings, and the whitespace the read trimmed put back where it
+ * was. The blank lines before and after the text stay at the body's start and
+ * end. The last line's trailing spaces, tabs or non-breaking spaces stay on
+ * that line wherever the edit moved it, and go with it when the user edited
+ * or deleted it. An emptied description empties the body, and a blank body,
+ * with nothing to keep in place, takes the text as it is.
  */
 export function bodyFor(source: string | null | undefined, text: string) {
   const lines = (source ?? "").replace(/\r\n?/g, "\n");
-  if (!text || !lines.trim()) return text;
   const start = /^(?:[ \t]*\n)*/.exec(lines)![0];
-  const end = lines.slice(lines.trimEnd().length);
-  const whole = `${start}${text}${end}`;
+  const read = lines.slice(start.length).trimEnd();
+  if (!text || !read) return text;
+  const end = lines.slice(start.length + read.length);
+  const lineEnd = end.indexOf("\n");
+  const trailing = lineEnd === -1 ? end : end.slice(0, lineEnd);
+  const blankLines = lineEnd === -1 ? "" : end.slice(lineEnd);
+  const edited = text.split("\n");
+  const at = lastLineAt(read.split("\n"), edited);
+  if (at !== undefined) edited[at] += trailing;
+  const whole = `${start}${edited.join("\n")}${blankLines}`;
   return source!.includes("\r\n") ? whole.replace(/\n/g, "\r\n") : whole;
 }
 

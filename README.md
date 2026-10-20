@@ -49,8 +49,11 @@ The plugin declares `connector.description` with `write` and a `maxLength` of
 - `readDescription` reads the issue's current body the same way.
 - `writeDescription` reads the issue again and writes nothing when its body is
   no longer the text Ajour expects: it answers with a conflict. Otherwise it
-  writes Ajour's text as it is, with the body's own line endings and the blank
-  lines and spaces around it put back. GitHub has no conditional update on an
+  writes Ajour's text as it is, with the body's own line endings and the
+  whitespace the read trimmed put back where it was: blank lines at the body's
+  start and end, and the last line's trailing spaces, tabs or non-breaking
+  spaces on that line, wherever the edit moved it. They go only with a last
+  line the user edited or deleted. GitHub has no conditional update on an
   issue, so a change made between that read and the write is overwritten; it
   stays in the issue's edit history.
 - Pull requests are not backlog items: their bodies are never read or written.

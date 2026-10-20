@@ -210,6 +210,59 @@ describe("writeDescription", () => {
     expect(patches()[0]?.body).toEqual({ body: "\r\nFirst\r\nChanged\r\n\r\n" });
   });
 
+  describe("keeps the whitespace Ajour's copy trims where it was", () => {
+    /** The body written for `text`, over an issue whose body is `source`. */
+    async function written(source: string, text: string) {
+      const { patches } = stubGitHub(source);
+      const read = await readDescription(connection, { sourceId: ISSUE_URL });
+      await writeDescription(connection, { sourceId: ISSUE_URL, text, expected: read.description.text });
+      return patches()[0]?.body?.body;
+    }
+
+    it("keeps trailing spaces on their line when the user appends after it", async () => {
+      await expect(written("First\nKeep  \n", "First\nKeep\nNext")).resolves.toBe("First\nKeep  \nNext\n");
+    });
+
+    it("keeps a trailing non-breaking space and tab on their line when the user appends after it", async () => {
+      await expect(written("First\nKeep \t", "First\nKeep\nNext")).resolves.toBe("First\nKeep \t\nNext");
+    });
+
+    it("keeps them with Windows line endings", async () => {
+      await expect(written("First\r\nKeep  \r\n", "First\nKeep\nNext")).resolves.toBe(
+        "First\r\nKeep  \r\nNext\r\n",
+      );
+    });
+
+    it("keeps leading blank lines at the start when the user prepends a line", async () => {
+      await expect(written("\n \nFirst\nLast", "Intro\nFirst\nLast")).resolves.toBe("\n \nIntro\nFirst\nLast");
+    });
+
+    it("keeps trailing blank lines at the end when the user appends a line", async () => {
+      await expect(written("First\n\n \n", "First\nNext")).resolves.toBe("First\nNext\n\n \n");
+    });
+
+    it("keeps the last line's trailing spaces when the user edits only earlier lines", async () => {
+      await expect(written("First\nKeep \t\n", "Changed\nKeep")).resolves.toBe("Changed\nKeep \t\n");
+    });
+
+    it("finds the last line between lines the user added before and after it", async () => {
+      await expect(written("A\nKeep  ", "X\nA\nKeep\nY")).resolves.toBe("X\nA\nKeep  \nY");
+    });
+
+    it("writes the last line as the user typed it when they edit it, keeping the blank lines after it", async () => {
+      await expect(written("First\nKeep  \n\n", "First\nKept")).resolves.toBe("First\nKept\n\n");
+    });
+
+    it("drops the trailing spaces with the last line when the user deletes it", async () => {
+      await expect(written("First\nKeep  \n", "First")).resolves.toBe("First\n");
+    });
+
+    it("replaces a blank body whole, and empties the body when the user empties the text", async () => {
+      await expect(written(" \n\n", "Hello")).resolves.toBe("Hello");
+      await expect(written("\nFirst  \n", "")).resolves.toBe("");
+    });
+  });
+
   it("answers a conflict and writes nothing when the issue changed since Ajour read it", async () => {
     const { patches } = stubGitHub("Edited by a colleague");
 
