@@ -227,13 +227,13 @@ describe("writeDescription", () => {
     }
 
     const ambiguous = { refused: expect.stringMatching(/cannot tell which "Keep" line.*Edit the description in GitHub\.$/) };
-    const lineBreak = { refused: expect.stringMatching(/line break.*Edit the description in GitHub\.$/) };
 
     it.each([
       ["unchanged", "A\nKeep  \n", "A\nKeep", "A\nKeep  \n"],
       ["append after a tab", "A\nKeep\t", "A\nKeep\nNext", "A\nKeep\t\nNext"],
       ["append after a non-breaking space", `A\nKeep${NBSP}`, "A\nKeep\nNext", `A\nKeep${NBSP}\nNext`],
-      ["append after two spaces", "A\nKeep  ", "A\nKeep\nNext", lineBreak],
+      // GitHub renders a newline in an issue as a line break, so the spaces change nothing.
+      ["append after two spaces", "First\nKeep  \n", "First\nKeep\nNext", "First\nKeep  \nNext\n"],
       ["append after a blank line", "A\nKeep  ", "A\nKeep\n\nNext", "A\nKeep  \n\nNext"],
       ["prepend", "\n \nA\nKeep  ", "Intro\nA\nKeep", "\n \nIntro\nA\nKeep  "],
       ["prepend and append", "A\nKeep\t", "Intro\nA\nKeep\nNext", "Intro\nA\nKeep\t\nNext"],

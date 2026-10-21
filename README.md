@@ -54,8 +54,7 @@ The plugin declares `connector.description` with `write` and a `maxLength` of
   start and end, and the last line's trailing spaces, tabs or non-breaking
   spaces on that line, wherever a line diff finds it. They go with a last line
   the user edited, deleted or moved. When the diff cannot tell which line is
-  the last one, as when the user repeats it, or two trailing spaces would
-  become a line break before an added line, the write is refused, and the
+  the last one, as when the user repeats it, the write is refused, and the
   user edits the description in GitHub. GitHub has no conditional update on an
   issue, so a change made between that read and the write is overwritten; it
   stays in the issue's edit history.

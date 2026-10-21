@@ -108,9 +108,8 @@ function lastLineAt(before: string[], after: string[]) {
  *   paragraph the user wrote as one.
  * - The last line's trailing spaces, tabs or non-breaking spaces stay on it,
  *   wherever a line diff finds it, and go with it when the user edited,
- *   deleted or moved it. When the diff cannot tell which line it is, or two
- *   or more spaces would become a line break before a line the user added,
- *   the write is refused.
+ *   deleted or moved it. When the diff cannot tell which line it is, the
+ *   write is refused.
  * - Uniform CRLF endings go on every line. Mixed ones are already `lost`.
  *
  * An emptied description empties the body, and a blank body, with nothing to
@@ -128,17 +127,10 @@ export function bodyFor(source: string | null | undefined, text: string) {
   const blankLines = lineEnd === -1 ? "" : end.slice(lineEnd);
   const edited = text.split("\n");
   if (trailing) {
+    // GitHub renders every newline in an issue as a line break, so two
+    // trailing spaces before a line the user added change nothing.
     const at = lastLineAt(read.split("\n"), edited);
-    if (at !== undefined) {
-      // Markdown reads two trailing spaces before a line that is not blank,
-      // spaces and tabs only, as a line break.
-      if (/ {2}$/.test(trailing) && at + 1 < edited.length && !/^[ \t]*$/.test(edited[at + 1]!)) {
-        throw new Error(
-          `Ajour cannot add a line after ${quoted(edited[at]!)} without the spaces at its end becoming a line break. ${EDIT_IN_GITHUB}`,
-        );
-      }
-      edited[at] += trailing;
-    }
+    if (at !== undefined) edited[at] += trailing;
   }
   const whole = `${start}${edited.join("\n")}${blankLines}`;
   return source!.includes("\r\n") ? whole.replace(/\n/g, "\r\n") : whole;
