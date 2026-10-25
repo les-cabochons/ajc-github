@@ -3,7 +3,12 @@
 Ajour Code Host - GitHub brings your GitHub pull requests into Ajour: the ones
 you wrote and the ones you were asked to review. It also syncs the issues
 assigned to you into the backlog. It implements the connector and code host
-capabilities of Ajour's plugin API version 3.
+capabilities of Ajour's plugin API version 4.
+
+The plugin runs in a sandboxed worker with no network, disk or Node access.
+Every request goes through `ajour.http`, which Ajour's broker sends for it.
+The broker builds the URL from the GitHub URL the user saved and attaches the
+token as a bearer credential, so the plugin never sees the token.
 
 ## What it does today
 
@@ -80,6 +85,13 @@ just typecheck
 just build
 ```
 
+`just build` bundles `src/plugin.ts` with esbuild into `dist/plugin.js`, one ES
+module for the browser (`scripts/bundle-options.mjs`). `tsc` only type-checks,
+and without Node types, so `Buffer` or `process` in the source fails the type
+check. The bundle's tests also fail on a Node built-in, `Buffer`, `process`,
+`require`, a global `fetch`, an `Authorization` header or a GitHub address built
+in the plugin.
+
 To rebuild whenever the source changes, keep the watcher running:
 
 ```sh
@@ -95,15 +107,40 @@ Run the complete local CI path with:
 just verify
 ```
 
+## The Ajour SDK
+
+The tests use `createFakeAjour` from `@ajour/plugin-sdk`, which refuses what
+Ajour's broker would: an endpoint, derived host, method or header that
+`plugin.json` does not declare. The SDK is not on npm yet, so the packed
+package is vendored in `vendor/ajour-plugin-sdk-0.1.0.tgz` and installed as a
+`file:` dev dependency.
+
+It was built from Ajour commit `678911a6a6f935927a956087eb6b742120446a9f`
+(`packages/plugin-sdk`, version 0.1.0). Refresh it when the plugin contract
+changes:
+
+```sh
+# in an Ajour checkout
+corepack pnpm install --frozen-lockfile
+corepack pnpm --filter @ajour/plugin-sdk build
+cd packages/plugin-sdk && npm pack
+# copy ajour-plugin-sdk-<version>.tgz to vendor/, point package.json at it,
+# run `just install`, and update the commit above
+```
+
+Once the SDK is published, swap the `file:` dependency for a version range and
+delete `vendor/`.
+
 ## Build an installable plugin
 
 ```sh
 just package
 ```
 
-The archive is written to `package/github-<version>.ajour-connector`. Its
-version comes from `plugin.json`; keep that value aligned with `package.json`
-when preparing a new release.
+The archive is written to `package/github-<version>.ajour-connector`. It holds
+`plugin.json` and `dist/` (the bundle) only. Its version comes from
+`plugin.json`; keep that value aligned with `package.json` when preparing a new
+release.
 
 Every push to `main` runs tests and type checks, stamps a unique prerelease
 version such as `0.1.0-main.3.9aac30e` into the build, packages the
@@ -122,8 +159,37 @@ be read, sync reports the missing access. Turn off **Include team review
 requests** to keep authored, direct-requested and previously reviewed PRs
 without organization access. The plugin does not guess membership. For GitHub
 Enterprise Server, set **GitHub URL** to your server, such as
-`https://github.acme.com`. The token stays in Ajour's local connection
-configuration.
+`https://github.acme.com`, and mark the connection as on-premises when the
+server is on a private network or uses `http`. Ajour keeps the token in its
+vault and never passes it to the plugin. Use `https://github.com` for GitHub.com,
+without `www`.
+
+Until the release that switches every plugin to API 4, Ajour admits an API 4
+package in development builds only.
+
+### What the plugin may call
+
+`plugin.json` declares two derived hosts, built from **GitHub URL**, with the
+endpoints below, and the `Accept`, `Content-Type`, `User-Agent` and
+`X-GitHub-Api-Version` request headers. Ajour shows them in the plugin's Access
+section, and its broker refuses anything else. The plugin declares no endpoint on
+the GitHub URL itself, and the base path of the URL is ignored.
+
+| Host | GitHub.com | GitHub Enterprise Server |
+| ---- | ---------- | ------------------------ |
+| `rest` | `https://api.github.com` | `{GitHub URL}/api/v3` |
+| `graphql` | `https://api.github.com` | `{GitHub URL}/api` |
+
+| Host | Method | Path | Used for |
+| ---- | ------ | ---- | -------- |
+| `graphql` | POST | `/graphql` | Checking the token, searching and reading pull requests and issues, closing and reopening issues |
+| `rest` | GET | `/repos/*/*/activity` | Attributing a push to the pusher and its time |
+| `rest` | GET | `/repos/*/*/issues/*` | Reading an issue's description |
+| `rest` | PATCH | `/repos/*/*/issues/*` | Writing an issue's description |
+
+`POST /graphql` is allowed as a whole: the broker does not read queries, so the
+token's scopes are the limit on what the plugin can read or change. The plugin
+loads when needed (`runtime.start`).
 
 Sync includes review-request events and mention flags so Ajour can decide when
 an item needs attention without storing comment or review bodies. For a reviewer
