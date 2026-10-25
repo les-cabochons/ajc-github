@@ -113,7 +113,10 @@
         "endpoints": [
           { "method": "GET", "path": "/repos/*/*/activity" },
           { "method": "GET", "path": "/repos/*/*/issues/*" },
-          { "method": "PATCH", "path": "/repos/*/*/issues/*" }
+          { "method": "PATCH", "path": "/repos/*/*/issues/*" },
+          { "method": "GET", "path": "/repositories/*/activity" },
+          { "method": "GET", "path": "/repositories/*/issues/*" },
+          { "method": "PATCH", "path": "/repositories/*/issues/*" }
         ]
       },
       {

@@ -128,6 +128,9 @@ describe("network declaration", () => {
       "GET /repos/*/*/activity",
       "GET /repos/*/*/issues/*",
       "PATCH /repos/*/*/issues/*",
+      "GET /repositories/*/activity",
+      "GET /repositories/*/issues/*",
+      "PATCH /repositories/*/issues/*",
     ]);
   });
 
